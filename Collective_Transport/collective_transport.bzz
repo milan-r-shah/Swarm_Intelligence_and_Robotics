@@ -1,0 +1,143 @@
+include "include/vec2.bzz"
+
+# ===========================================================================
+# Function for random walk
+function random_walk() {
+    i = 0
+    accum2 = math.vec2.new(0.0, 0.0)
+    while(i < 8) {
+        reading = math.vec2.newp(proximity[i].value, proximity[i].angle)
+        accum2 = math.vec2.add(accum2, reading)
+        i = i + 1
+    }
+
+    if (math.vec2.length(accum2) == 0) {
+        set_wheels(10.0, 10.0)      # Go straight
+    }
+    else {
+        if (math.vec2.angle(accum2) > 0.0) {
+            set_wheels(10.0, 0.0)   # Turn Right
+        }
+        else {
+            set_wheels(0.0, 10.0)   # Turn Left
+        }
+    }
+}
+# ===========================================================================
+# function for one light-following robot
+function light_following(){
+    v.put("l", pose.position)
+    sensor_cnt1 = 0
+    var temp_dist1 = 0.0
+    var temp_accum1 = math.vec2.new(0.0, 0.0)
+    var accum1 = math.vec2.new(0.0, 0.0)
+
+    while(sensor_cnt1 < 8) {
+        val1 = light[sensor_cnt1].value
+        if(val1 != 0) {
+            temp_dist1 = 100 / math.sqrt(val1)
+            temp_accum1 = math.vec2.newp(temp_dist1, light[sensor_cnt1].angle)
+            accum1 = math.vec2.add(accum1, temp_accum1)
+        }
+        sensor_cnt1 = sensor_cnt1 + 1
+    }
+    # v.put("l", pose.position)
+    goto(accum1.x, accum1.y)
+}
+
+
+# ===========================================================================
+function collective_transport(){
+    # first, we have to check whether a light is visible or not
+    sensor_cnt2 = 0
+    flag = 0
+    while(sensor_cnt2 < 8){
+        val2 = light[sensor_cnt2].value
+        if(val2 != 0){
+            flag = 1
+        }
+        sensor_cnt2 = sensor_cnt2 + 1
+    }
+
+    # If the light is visible, do random walk
+    if(flag == 1){
+        random_walk()
+        set_leds(0, 0, 255)     # change the LED color to Blue
+    }
+
+    # If the light is not visible, then go in the direction of the line-following robot
+    else {
+        set_leds(0, 255, 0)     # change the LED color to Green
+
+        # getting the position vector of line-following robot w.r.t. origin
+        light_following_pose = v.get("l")
+
+        # getting the position vectors of rest of the robots w.r.t. origin
+        current_robot_pose = pose.position
+
+        # Resultant vector i.e. rest of the robots should go in this direction
+        resultant_vec = math.vec2.sub(light_following_pose, current_robot_pose)
+
+        # angle of the resultant vector
+        resultant_vec_angle = math.vec2.angle(resultant_vec)
+
+        # Orientation (Yaw angle) of the rest of the robots in the arena
+        current_robot_yaw = pose.orientation.yaw
+
+        # if the orientation of a robot is already in the direction of the resultant
+        # vector then go straight
+        if(resultant_vec_angle == current_robot_yaw){
+            set_wheels(10.0, 10.0)
+        }
+
+        # or else first rotate, align yourself in that direction
+        else{
+            if(resultant_vec_angle > current_robot_yaw){
+                set_wheels(0.0, 10.0)
+            }
+            else{
+                set_wheels(10.0, 0.0)
+            }
+        }
+    }
+
+}
+
+
+# ===========================================================================
+function init(){
+    # constructing the swarm
+    # One light-following robot
+    s1 = swarm.create(1)
+    s1.select(id == 0)
+    if(s1.in()){
+        set_leds(255, 0, 0)     # Red color
+    }
+
+    # rest of the robots for collective transport
+    s2 = s1.others(2)
+    if(s2.in()){
+        # set_leds(0, 255, 0)
+    }
+
+    # creating a virtual stigmergy table for the position of line-following robot
+    v = stigmergy.create(1)
+
+    # Inserting any initial value to avoid empty return/get in the above functions
+    # in the beginning
+    var t = {.x = 1.0, .y = 1.0, .z = 1.0}
+    v.put("l", t)
+}
+
+function step() {
+    s1.exec(light_following)
+    s2.exec(collective_transport)
+}
+
+function reset() {
+
+}
+
+function destroy() {
+
+}
